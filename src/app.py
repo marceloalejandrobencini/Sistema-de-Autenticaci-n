@@ -1,74 +1,74 @@
-"""
-This module takes care of starting the API Server, Loading the DB and Adding the endpoints
-"""
-import os
-from flask import Flask, request, jsonify, url_for, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory
+from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from flask_swagger import swagger
-from api.utils import APIException, generate_sitemap
-from api.models import db
-from api.routes import api
-from api.admin import setup_admin
-from api.commands import setup_commands
+from flask_cors import CORS
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from werkzeug.security import generate_password_hash, check_password_hash
+import os
 
-# from models import Person
-
-ENV = "development" if os.getenv("FLASK_DEBUG") == "1" else "production"
-static_file_dir = os.path.join(os.path.dirname(
-    os.path.realpath(__file__)), '../public/')
 app = Flask(__name__)
-app.url_map.strict_slashes = False
-
-# database condiguration
-db_url = os.getenv("DATABASE_URL")
-if db_url is not None:
-    app.config['SQLALCHEMY_DATABASE_URI'] = db_url.replace(
-        "postgres://", "postgresql://")
-else:
-    app.config['SQLALCHEMY_DATABASE_URI'] = "sqlite:////tmp/test.db"
-
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-MIGRATE = Migrate(app, db, compare_type=True)
-db.init_app(app)
+app.config['JWT_SECRET_KEY'] = 'your_secret_key'
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# add the admin
-setup_admin(app)
+db = SQLAlchemy(app)
+migrate = Migrate(app, db)
+jwt = JWTManager(app)
 
-# add the admin
-setup_commands(app)
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(80), nullable=False)
 
-# Add all endpoints form the API with a "api" prefix
-app.register_blueprint(api, url_prefix='/api')
+@app.route('/api/signup', methods=['POST'])
+def signup():
+    data = request.get_json()
+    email = data['email']
+    password = generate_password_hash(data['password'])
+    existing_user = User.query.filter_by(email=email).first()
+    
+    if existing_user:
+        return jsonify({'message': 'User already exists'}), 409
 
-# Handle/serialize errors like a JSON object
+    new_user = User(email=email, password=password)
+    try:
+        db.session.add(new_user)
+        db.session.commit()
+        return jsonify({'message': 'User created successfully'}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'message': str(e)}), 500
 
+@app.route('/api/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    email = data['email']
+    password = data['password']
+    user = User.query.filter_by(email=email).first()
+    if user and check_password_hash(user.password, password):
+        access_token = create_access_token(identity={'email': email})
+        return jsonify({'token': access_token}), 200
+    return jsonify({'message': 'Invalid credentials'}), 401
 
-@app.errorhandler(APIException)
-def handle_invalid_usage(error):
-    return jsonify(error.to_dict()), error.status_code
+@app.route('/api/private', methods=['GET'])
+@jwt_required()
+def private():
+    current_user = get_jwt_identity()
+    return jsonify(logged_in_as=current_user), 200
 
-# generate sitemap with all your endpoints
+@app.route('/api/users', methods=['GET'])
+def get_users():
+    users = User.query.all()
+    user_list = []
+    for user in users:
+        user_data = {
+            'id': user.id,
+            'email': user.email
+        }
+        user_list.append(user_data)
+    return jsonify(user_list), 200
 
-
-@app.route('/')
-def sitemap():
-    if ENV == "development":
-        return generate_sitemap(app)
-    return send_from_directory(static_file_dir, 'index.html')
-
-# any other endpoint will try to serve it like a static file
-
-
-@app.route('/<path:path>', methods=['GET'])
-def serve_any_other_file(path):
-    if not os.path.isfile(os.path.join(static_file_dir, path)):
-        path = 'index.html'
-    response = send_from_directory(static_file_dir, path)
-    response.cache_control.max_age = 0  # avoid cache memory
-    return response
-
-
-# this only runs if `$ python src/main.py` is executed
 if __name__ == '__main__':
-    PORT = int(os.environ.get('PORT', 3001))
-    app.run(host='0.0.0.0', port=PORT, debug=True)
+    db.create_all()
+    app.run(host='0.0.0.0', port=5500, debug=True)

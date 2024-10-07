@@ -1,19 +1,27 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import React from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Navbar as BootstrapNavbar, Nav, Button } from 'react-bootstrap';
 
-export const Navbar = () => {
-	return (
-		<nav className="navbar navbar-light bg-light">
-			<div className="container">
-				<Link to="/">
-					<span className="navbar-brand mb-0 h1">React Boilerplate</span>
-				</Link>
-				<div className="ml-auto">
-					<Link to="/demo">
-						<button className="btn btn-primary">Check the Context in action</button>
-					</Link>
-				</div>
-			</div>
-		</nav>
-	);
+const Navbar = () => {
+    const navigate = useNavigate();
+
+    const handleLogout = () => {
+        sessionStorage.removeItem('token');
+        navigate('/login'); 
+    };
+
+    return (
+        <BootstrapNavbar bg="dark" variant="dark">
+            <BootstrapNavbar.Brand as={Link} to="/">Flask Logins</BootstrapNavbar.Brand>
+            <Nav className="mr-auto">
+                <Nav.Link as={Link} to="/">Home</Nav.Link>
+                <Nav.Link as={Link} to="/signup">Registro</Nav.Link>
+                <Nav.Link as={Link} to="/login">Inicio de sesión</Nav.Link>
+                <Nav.Link as={Link} to="/private">Privado</Nav.Link>
+            </Nav>
+            <Button variant="outline-light" onClick={handleLogout}>Logout</Button>
+        </BootstrapNavbar>
+    );
 };
+
+export default Navbar;
